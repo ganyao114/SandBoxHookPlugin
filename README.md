@@ -1,12 +1,20 @@
 # SandBoxHookPlugin
+
 demo for inject &amp; hook in sandbox
 you can use in va or dr clone etc....
+also can use in a root device...
 
 # How to use
 
 - set hook target:  
 
 public final static String targetPkg = "com.trendmicro.speedy";  
+
+- set abi with hook target:  
+
+abiFilters 'armeabi-v7a'. 
+
+copy libsandhook.so from sandhook to assets
 
 - set hook item  
 
