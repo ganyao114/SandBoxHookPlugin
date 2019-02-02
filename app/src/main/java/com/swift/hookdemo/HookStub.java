@@ -16,12 +16,12 @@ import java.io.OutputStream;
 
 public class HookStub {
 
-    public final static String targetPkg = "com.trendmicro.freetmms";
+    public final static String targetPkg = "com.trendmicro.speedy";
 
 
     public static void onInjected() {
         String sdOldPath = Environment.getExternalStorageDirectory().getAbsolutePath() + "/Hook/libsandhook32.so";
-        String soNewPath = "/data/data/" + targetPkg + "/lib/libsandhook32.so";
+        String soNewPath = "/data/user/0/com.trendmicro.tmas.debug/sandboxdata/com.swift.hookdemo/data/files/Hook/libsandhook32.so";
         try {
             copyFile(new File(sdOldPath), new File(soNewPath));
         } catch (IOException e) {

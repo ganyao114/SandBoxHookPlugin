@@ -9,9 +9,16 @@
 #define REMOTE_STR_BUF_SIZE 0x10000
 #define HANDLES_LIST_SIZE 128
 
+#define ANDROID_N 24
+#define ANDROID_N2 25
+#define ANDROID_O 26
+#define ANDROID_O2 27
+#define ANDROID_P 28
+
 #ifdef __aarch64__
 #define LIBC_PATH "/system/lib64/libc.so"
 #define LINKER_PATH "/system/bin/linker64"
+#define ART_PATH "/system/lib64/libart.so"
 #define ARGS_REG_NUM 8
 #define pt_regs user_pt_regs
 #define PTRACE_SETREGS PTRACE_SETREGSET
@@ -24,6 +31,7 @@
 #else
 #define LIBC_PATH "/system/lib/libc.so"
 #define LINKER_PATH "/system/bin/linker"
+#define ART_PATH "/system/lib/libart.so"
 #define ARGS_REG_NUM 4
 #endif
 
@@ -48,6 +56,7 @@ class Inject {
 public:
     pid_t pid;
     void *remote_buf;
+    int SDK_INT = ANDROID_O;
 
     Inject(pid_t pid);
 
@@ -59,7 +68,13 @@ public:
 
     void *call_sym(char *module, char *sym, void **args, int argc);
 
+    int  find_sym_offset_spec(const char* elfpath, const char* sym);
+
+    void *get_remote_addr_spec(const char *elfpath, const char* sym);
+
     void *get_remote_addr(const char *module_name, void *local_addr);
+
+    void *get_remote_addr(const char *module_name, const char *sym_name);
 
     void *loadlibrary(char *libfile);
 

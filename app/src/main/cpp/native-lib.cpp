@@ -133,10 +133,10 @@ jobject load_module(char *filepath) {
     return NULL;
 }
 
-int entry() {
+int entry(char* dexpath) {
     __android_log_print(ANDROID_LOG_DEBUG, "jnitest", "entry_3");
     init_gvar();
-    jobject loader = load_module("/data/app/com.swift.hookdemo-1/base.apk");
+    jobject loader = load_module(dexpath);
     __android_log_print(ANDROID_LOG_DEBUG, "jnitest", "loader = %p", loader);
     jclass clazz = gJNIEnv->FindClass("java/lang/ClassLoader");
     __android_log_print(ANDROID_LOG_DEBUG, "jnitest", "clazz = %p", clazz);
@@ -157,7 +157,18 @@ int entry() {
     return 0x100;
 }
 
+__attribute__((constructor)) static void _init() {
+    LOGD("[_init] Bridge so has been loaded!!!!");
+}
+
 #define __DEBUG__ 0
+
+void callInit(Inject *injector, const char* payload, void* local_init_addr) {
+    void* remote_init_addr = injector->get_remote_addr("libinjector.so", local_init_addr);
+    if (remote_init_addr) {
+        injector->call_addr(remote_init_addr, NULL, 0);
+    }
+}
 
 extern "C"
 JNIEXPORT void JNICALL
@@ -168,7 +179,7 @@ Java_com_swift_hookdemo_MainActivity_inject(JNIEnv *env, jobject instance, jstri
 
     // TODO
     Inject *injector = new Inject(find_pid_of(pkgname));
-    injector->call_sym(const_cast<char *>(payload), "_Z5entryv", NULL, 0);
+    injector->call_sym(const_cast<char *>(payload), "_Z5entryPc", NULL, 0);
     delete injector;
 
 
@@ -179,13 +190,16 @@ Java_com_swift_hookdemo_MainActivity_inject(JNIEnv *env, jobject instance, jstri
 extern "C"
 JNIEXPORT void JNICALL
 Java_com_swift_hookdemo_MainActivity_injectbypid(JNIEnv *env, jobject instance,
-                                                                  jint pid, jstring payload_) {
+                                                                  jint pid, jstring payload_, jstring dexpath_) {
     const char *payload = env->GetStringUTFChars(payload_, 0);
-
+    const char *dexpath = env->GetStringUTFChars(dexpath_, 0);
     // TODO
     Inject *injector = new Inject(pid);
-    injector->call_sym(const_cast<char *>(payload), "_Z5entryv", NULL, 0);
+    void *remote_str = injector->write_string(const_cast<char *>(dexpath));
+    void *args[1] = {remote_str};
+    injector->call_sym(const_cast<char *>(payload), "_Z5entryPc", args, 1);
     delete injector;
 
     env->ReleaseStringUTFChars(payload_, payload);
+    env->ReleaseStringUTFChars(dexpath_, dexpath);
 }

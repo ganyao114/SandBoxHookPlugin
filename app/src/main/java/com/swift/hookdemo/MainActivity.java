@@ -1,6 +1,7 @@
 package com.swift.hookdemo;
 
 import android.app.Activity;
+import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
@@ -45,18 +46,20 @@ public class MainActivity extends Activity {
             sdFile.mkdirs();
         }
         try {
-            writeAsset(outDir + "/libpayload32.so", "armeabi-v7a/libpayload.so");
-            writeAsset(sdDir + "/libsandhook32.so", "armeabi-v7a/libsandhook");
+            writeAsset(outDir + "/libinjector.so", "armeabi-v7a/libinjector.so");
+            writeAsset(outDir + "/libsandhook32.so", "armeabi-v7a/libsandhook");
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 int pid = ProcessUtils.getPid(targetPkg);
                 if (pid < 0)
                     return;
-                injectbypid(pid, outDir + "/libpayload32.so");
+                injectbypid(pid, outDir + "/libinjector.so", getPackageManager().getApplicationInfo(getPackageName(), 0).sourceDir);
             } else {
-                inject(targetPkg, outDir + "/libpayload32.so");
+                inject(targetPkg, outDir + "/libinjector.so");
             }
         } catch (IOException e) {
+            e.printStackTrace();
+        } catch (PackageManager.NameNotFoundException e) {
             e.printStackTrace();
         }
     }
@@ -82,7 +85,7 @@ public class MainActivity extends Activity {
 
     public native void inject(String pkgname, String payload);
 
-    public native void injectbypid(int pid, String payload);
+    public native void injectbypid(int pid, String payload, String injectDexPath);
 
     /**
      * A native method that is implemented by the 'native-lib' native library,

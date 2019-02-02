@@ -11,8 +11,10 @@
 #include <dlfcn.h>
 #include <sys/uio.h>
 #include <elf.h>
+#include "sotool.h"
 
 #include "Inject.h"
+#include "fake_dlfcn.h"
 
 
 Inject::Inject(pid_t pid) : pid(pid) {
@@ -238,7 +240,7 @@ void *Inject::write_string(char *str) {
     return (void *) result;
 }
 
-void *Inject::call_sym(char *module, char *sym, void **args, int argc) {
+void *Inject::call_sym(char *module, char *sym, void **_args, int argc) {
     if (!this->dlsym_addr) {
         this->dlsym_addr = get_remote_addr(LINKER_PATH, (void *) dlsym);
     }
@@ -250,9 +252,10 @@ void *Inject::call_sym(char *module, char *sym, void **args, int argc) {
         };
         void *sym_addr = this->call_addr(this->dlsym_addr, args, 2);
         printf("entry sym_addr = %p\n", sym_addr);
+        LOGD("call sym %s addr %lu", sym, sym_addr);
         if (sym_addr) {
             this->status = HLUWA_STATUS_SUCCESS;
-            return this->call_addr(sym_addr, args, argc);
+            return this->call_addr(sym_addr, _args, argc);
         } else {
             char buf[256] = "";
             void *err_str = this->call_addr(this->get_remote_addr(LINKER_PATH, (void *) dlerror),
@@ -321,15 +324,45 @@ void *Inject::call_addr(void *remote_addr, void **args, int argc) {
 
 void *Inject::loadlibrary(char *libfile) {
     if (!this->dlopen_addr) {
-        this->dlopen_addr = this->get_remote_addr(LINKER_PATH, (void *) dlopen);
+        if (SDK_INT >= ANDROID_N) {
+            const char* name_dlopen_ext_N = "__dl__ZL10dlopen_extPKciPK17android_dlextinfoPv";
+            const char* name_dlopen_ext_O = "__dl__ZL10dlopen_extPKciPK17android_dlextinfoPKv";
+            const char* name_dlopen_ext_P = "__dl___loader_android_dlopen_ext";
+            if (SDK_INT >= ANDROID_P) {
+                this->dlopen_addr = this->get_remote_addr_spec(LINKER_PATH, name_dlopen_ext_P);
+            } else if (SDK_INT >= ANDROID_O) {
+                this->dlopen_addr = this->get_remote_addr_spec(LINKER_PATH, name_dlopen_ext_O);
+            } else {
+                this->dlopen_addr = this->get_remote_addr_spec(LINKER_PATH, name_dlopen_ext_N);
+            }
+        } else {
+            this->dlopen_addr = this->get_remote_addr(LINKER_PATH, (void *) dlopen);
+        }
     }
+
+    LOGD("dlopen addr: %lu", this->dlopen_addr);
+
     void *remote_str = this->write_string(libfile);
     char buf[256] = {0};
-    void *args[2] = {
-            remote_str,
-            (void *) (RTLD_NOW | RTLD_LOCAL)
-    };
-    void *handle = this->call_addr(this->dlopen_addr, args, 2);
+
+    void *handle = nullptr;
+
+    if (SDK_INT >= ANDROID_N) {
+        void *args[4] = {
+                remote_str,
+                (void *) RTLD_NOW,
+                0,
+                reinterpret_cast<void *>((size_t)get_module_base(pid, ART_PATH) + 0x2000)
+        };
+        handle = this->call_addr(this->dlopen_addr, args, 4);
+    } else {
+        void *args[2] = {
+                remote_str,
+                (void *) (RTLD_NOW | RTLD_LOCAL)
+        };
+        handle = this->call_addr(this->dlopen_addr, args, 2);
+    }
+
     if (!handle) {
         void *err_str = this->call_addr(this->get_remote_addr(LINKER_PATH, (void *) dlerror), NULL,
                                         0);
@@ -351,11 +384,25 @@ void *Inject::get_remote_addr(const char *module_name, void *local_addr) {
 
     local_handle = get_module_base(-1, module_name);
     remote_handle = get_module_base(this->pid, module_name);
-    printf("module_name = %s, local_handle = %p, remote_handle = %p, local_addr = %p\n",
+    LOGD("module_name = %s, local_handle = %p, remote_handle = %p, local_addr = %p\n",
            module_name, local_handle, remote_handle, local_addr);
     void *ret_addr = (void *) ((unsigned long) local_addr + (unsigned long) remote_handle -
                                (unsigned long) local_handle);
     return ret_addr;
+}
+
+void *Inject::get_remote_addr(const char *module_name, const char *sym_name) {
+    void* local_addr = nullptr;
+    void* handle = nullptr;
+    if (SDK_INT >= ANDROID_N) {
+        handle = fake_dlopen(module_name, RTLD_NOW);
+        local_addr = fake_dlsym(handle, sym_name);
+        LOGD("fake dlopen sym addr %s: handle %lu sym %lu", sym_name, handle, local_addr);
+    } else {
+        handle = dlopen(module_name, RTLD_NOW);
+        local_addr = dlsym(handle, sym_name);
+    }
+    return get_remote_addr(module_name, local_addr);
 }
 
 void *get_module_base(pid_t pid, const char *module_name) {
@@ -381,5 +428,84 @@ void *get_module_base(pid_t pid, const char *module_name) {
         }
         fclose(fp);
     }
+
+    LOGD("get module base %s: %lu", module_name, addr);
+
     return (void *) addr;
+}
+
+int Inject::find_sym_offset_spec(const char* elfpath, const char* sym) {
+    FILE *fp = NULL;
+    if (!(fp = fopen(elfpath, "rb")))  {
+        LOGD("[init_dlopen_ext_offset]Unable to open %s\n", elfpath);
+        return -1;
+    }
+
+    fseek(fp, 0, SEEK_END);
+    int size = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+
+    char *buffer = (char*)malloc(size);
+    if (fread(buffer, 1, size, fp) != size) {
+        LOGD("fread error\n");
+        return -1;
+    }
+    fclose(fp);
+
+    unsigned long symstr_off = 0, symtab_off = 0, symtab_size = 0;
+    unsigned long symtab_entsize = 0, symtab_count = 0;
+    const elf_header_t* eh  = (elf_header_t*)buffer;
+    const elf_sheader_t* esh = (elf_sheader_t*)(buffer + eh->shoff);
+    char* section_str = esh[eh->shstrndx].sh_offset + buffer;
+
+    for (int i = 0; i < eh->shnum; i++) {
+        char* sname = esh[i].sh_name + section_str;
+        if (strcmp(sname, ".symtab") == 0) {
+            symtab_off = esh[i].sh_offset;
+            symtab_size = esh[i].sh_size;
+            symtab_entsize = esh[i].sh_entsize;
+            symtab_count = symtab_size / symtab_entsize;
+            LOGD("[init_dlopen_ext_offset]: symtab offset = %lx, count=%lx, index= %d\n",
+                        symtab_off, symtab_count, i);
+        }
+        if (strcmp(sname, ".strtab") == 0) {
+            symstr_off = esh[i].sh_offset;
+            LOGD("[init_dlopen_ext_offset] symstr offset = %lx, index = %d\n", symstr_off, i);
+        }
+
+    }
+
+    if(!symtab_off) {
+        LOGD("[init_dlopen_ext_offset] can't find symtab from sections\n");
+    }
+
+    elf_sym_t* edt = (elf_sym_t*)(buffer + symtab_off);
+
+    int _offset = -1;
+
+    for(int i = 0 ; i < symtab_count; i++) {
+        uint8_t st_type = ELF32_ST_TYPE(edt[i].info);
+        char* st_name = buffer + symstr_off + edt[i].name;
+        // DEBUG_PRINT("[init_dlopen_ext_offset] walk sym name:%s, value:%x\n", st_name, edt[i].value);
+        if (st_type == STT_FUNC && edt[i].size) {
+            if(strcmp(st_name, sym) == 0) {
+                _offset = edt[i].value;
+                LOGD("[init_dlopen_ext_offset] find %s: %x\n", elfpath ,_offset);
+                break;
+            }
+        }
+    }
+    free(buffer);
+
+    return _offset;
+}
+
+void *Inject::get_remote_addr_spec(const char *elfpath, const char* sym) {
+    int offset = find_sym_offset_spec(elfpath, sym);
+    size_t addr = reinterpret_cast<size_t>(get_module_base(pid, elfpath));
+    if (offset >= 0) {
+        return reinterpret_cast<void *>(addr + offset);
+    } else {
+        return nullptr;
+    }
 }

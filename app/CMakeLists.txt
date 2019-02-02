@@ -8,17 +8,6 @@ cmake_minimum_required(VERSION 3.4.1)
 set(CMAKE_VERBOSE_MAKEFILE on)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY    "${CMAKE_CURRENT_SOURCE_DIR}/src/main/assets/${ANDROID_ABI}")
 
-add_library( # Sets the name of the library.
-             payload
-
-             # Sets the library as a shared library.
-             SHARED
-
-             # Provides a relative path to your source file(s).
-             src/main/cpp/native-lib.cpp
-             src/main/cpp/Inject.cpp
-             src/main/cpp/fake_dlfcn.cpp)
-
 add_library(injector
 
             # Sets the library as a shared library.
@@ -45,12 +34,6 @@ find_library( # Sets the name of the path variable.
 # can link multiple libraries, such as libraries you define in this
 # build script, prebuilt third-party libraries, or system libraries.
 
-target_link_libraries( # Specifies the target library.
-                       payload
-
-                       # Links the target library to the log library
-                       # included in the NDK.
-                       ${log-lib} )
 
 target_link_libraries( # Specifies the target library.
                        injector
