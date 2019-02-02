@@ -175,3 +175,17 @@ Java_com_swift_hookdemo_MainActivity_inject(JNIEnv *env, jobject instance, jstri
     env->ReleaseStringUTFChars(pkgname_, pkgname);
     env->ReleaseStringUTFChars(payload_, payload);
 }
+
+extern "C"
+JNIEXPORT void JNICALL
+Java_com_swift_hookdemo_MainActivity_injectbypid(JNIEnv *env, jobject instance,
+                                                                  jint pid, jstring payload_) {
+    const char *payload = env->GetStringUTFChars(payload_, 0);
+
+    // TODO
+    Inject *injector = new Inject(pid);
+    injector->call_sym(const_cast<char *>(payload), "_Z5entryv", NULL, 0);
+    delete injector;
+
+    env->ReleaseStringUTFChars(payload_, payload);
+}

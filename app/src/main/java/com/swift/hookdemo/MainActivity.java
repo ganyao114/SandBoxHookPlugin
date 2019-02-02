@@ -1,10 +1,12 @@
 package com.swift.hookdemo;
 
 import android.app.Activity;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.util.Log;
 import android.view.View;
+import android.widget.Toast;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -32,6 +34,7 @@ public class MainActivity extends Activity {
                 doInject();
             }
         });
+
     }
 
     private void doInject() {
@@ -45,7 +48,14 @@ public class MainActivity extends Activity {
             writeAsset(outDir + "/libpayload32.so", "armeabi-v7a/libpayload.so");
             writeAsset(sdDir + "/libsandhook32.so", "armeabi-v7a/libsandhook");
 
-            inject(targetPkg, outDir + "/libpayload32.so");
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                int pid = ProcessUtils.getPid(targetPkg);
+                if (pid < 0)
+                    return;
+                injectbypid(pid, outDir + "/libpayload32.so");
+            } else {
+                inject(targetPkg, outDir + "/libpayload32.so");
+            }
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -68,7 +78,11 @@ public class MainActivity extends Activity {
     }
 
 
+
+
     public native void inject(String pkgname, String payload);
+
+    public native void injectbypid(int pid, String payload);
 
     /**
      * A native method that is implemented by the 'native-lib' native library,

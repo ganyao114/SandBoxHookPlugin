@@ -16,7 +16,7 @@ import java.io.OutputStream;
 
 public class HookStub {
 
-    public final static String targetPkg = "com.trendmicro.speedy";
+    public final static String targetPkg = "com.trendmicro.freetmms";
 
 
     public static void onInjected() {
